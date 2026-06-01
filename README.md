@@ -312,33 +312,4 @@ sequenceDiagram
 
 ---
 
-## 3. Upload Flow Summary
-
-```text
-User selects image
- -> Frontend requests pre-signed URL
- -> Upload Service saves metadata as PENDING
- -> Upload Service returns pre-signed URL
- -> Frontend uploads image directly to S3
- -> Frontend confirms upload completed
- -> Upload Service sends message to SQS
- -> Image Processor reads from SQS
- -> Image Processor gets original image from S3
- -> Image Processor creates thumbnail / optimized image
- -> Image Processor updates metadata as PROCESSED
-```
-
----
-
-## 4. Browse Flow Summary
-
-```text
-User opens feed
- -> Frontend requests feed metadata
- -> Feed Service reads metadata from DynamoDB
- -> Feed Service returns image URLs
- -> Browser loads images from CloudFront
- -> CloudFront serves cached image if available
- -> If not cached, CloudFront gets image from S3
-```
 
