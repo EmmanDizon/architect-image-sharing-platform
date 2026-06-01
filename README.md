@@ -4,6 +4,41 @@ Architecture case study for a scalable image-sharing platform optimized for glob
 
 # Architectural Reasoning
 
+Functional Requirements
+Users can upload images
+Users can browse and view images
+Non-Functional Requirements
+Support 10,000 daily users initially
+Scale up to 500,000 daily users
+Highly available
+Fast image loading worldwide
+Cost-effective
+Automatically scalable
+Problem Statement
+
+The application is expected to have significantly more image views than uploads.
+
+Example:
+
+1 image upload
+↓
+Thousands of image views
+
+As the number of users grows, the architecture must be able to handle high read traffic without creating unnecessary load on the backend.
+
+The solution should also provide a good user experience for users located in different regions while keeping infrastructure costs reasonable.
+
+Main Goal
+
+Design a scalable and cost-effective image sharing platform that:
+
+Supports future growth
+Delivers images quickly to global users
+Minimizes backend workload
+Automatically scales based on demand
+Keeps operational overhead low
+Maintains a responsive user experience
+
 ## Why Lambda Instead of Containers
 
 Lambda was selected because the backend APIs are lightweight and event-driven.
