@@ -261,15 +261,19 @@ sequenceDiagram
     User->>Frontend: Select image to upload
     Frontend->>API: Request upload URL
     API->>UploadService: Forward request
+
     UploadService->>DB: Save image metadata with status PENDING
     UploadService-->>Frontend: Return pre-signed S3 upload URL
 
     Frontend->>S3: Upload image directly using pre-signed URL
-    S3-->>Frontend: Upload successful
+    S3-->>Frontend: Return upload success
 
-    S3->>Queue: Send upload event
+    Frontend->>API: Confirm upload completed
+    API->>UploadService: Forward upload confirmation
+    UploadService->>Queue: Send image processing message
+
     Queue->>Processor: Trigger image processing
-    Processor->>S3: Read uploaded image
+    Processor->>S3: Read original image
     Processor->>S3: Save thumbnail / optimized image
     Processor->>DB: Update image metadata status to PROCESSED
 ```
@@ -293,9 +297,9 @@ sequenceDiagram
     API->>FeedService: Forward request
     FeedService->>DB: Get image metadata
     DB-->>FeedService: Return image metadata
-    FeedService-->>Frontend: Return image list with CloudFront image URLs
+    FeedService-->>Frontend: Return metadata and CloudFront image URLs
 
-    Frontend->>CDN: Load image from CloudFront URL
+    Frontend->>CDN: Request image using CloudFront URL
 
     alt Cache Hit
         CDN-->>Frontend: Return cached image
@@ -308,34 +312,33 @@ sequenceDiagram
 
 ---
 
-## 3. Simple Flow Summary
-
-### Upload
+## 3. Upload Flow Summary
 
 ```text
-User
- -> Frontend
- -> API Gateway
- -> Lambda Upload Service
- -> Generate Pre-Signed URL
- -> Frontend Uploads Directly To S3
- -> S3 Event
- -> SQS
- -> Image Processor
- -> Save Thumbnail
- -> Update DynamoDB
+User selects image
+ -> Frontend requests pre-signed URL
+ -> Upload Service saves metadata as PENDING
+ -> Upload Service returns pre-signed URL
+ -> Frontend uploads image directly to S3
+ -> Frontend confirms upload completed
+ -> Upload Service sends message to SQS
+ -> Image Processor reads from SQS
+ -> Image Processor gets original image from S3
+ -> Image Processor creates thumbnail / optimized image
+ -> Image Processor updates metadata as PROCESSED
 ```
 
-### Browse
+---
+
+## 4. Browse Flow Summary
 
 ```text
-User
- -> Frontend
- -> API Gateway
- -> Lambda Feed Service
- -> DynamoDB
- -> Return Metadata + Image URLs
- -> Browser Loads Image From CloudFront
- -> CloudFront Gets Image From S3 If Not Cached
+User opens feed
+ -> Frontend requests feed metadata
+ -> Feed Service reads metadata from DynamoDB
+ -> Feed Service returns image URLs
+ -> Browser loads images from CloudFront
+ -> CloudFront serves cached image if available
+ -> If not cached, CloudFront gets image from S3
 ```
 
