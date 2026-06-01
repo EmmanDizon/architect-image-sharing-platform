@@ -4,244 +4,155 @@ Architecture case study for a scalable image-sharing platform optimized for glob
 
 # Architectural Reasoning
 
-## Requirements
+## Why Lambda Instead of Containers
 
-### Functional Requirements
+Lambda was selected because the backend APIs are lightweight and event-driven.
 
-* Users can upload images
-* Users can browse and view images
+The system mainly needs to:
 
-### Non-Functional Requirements
+* Generate pre-signed upload URLs
+* Save image metadata
+* Retrieve image metadata
+* Send image processing messages to SQS
 
-* Support 10,000 daily users initially
-* Scale up to 500,000 daily users
-* Highly available
-* Fast image loading worldwide
-* Cost-effective
-* Automatically scalable
+These tasks are short-running and do not require a server running 24/7.
 
----
+### Why Not Containers
 
+Containers are a good option for long-running services, heavy workloads, or applications that need full control over runtime and networking.
 
-<img width="1831" height="1080" alt="image" src="https://github.com/user-attachments/assets/3e855235-1273-4a23-a437-60a9063eb00a" />
+For this use case, containers are not required because:
 
-## Main Challenge
+* The workload is not long-running
+* Traffic may vary throughout the day
+* Running containers 24/7 adds baseline cost
+* Additional infrastructure such as ECS/Fargate, task definitions, scaling policies, and load balancers may be required
+* Operational overhead is higher compared to Lambda
 
-The application is expected to have more image views than uploads.
-
-Example:
-
-```text
-1 image uploaded
-↓
-Thousands of users view the same image
-```
-
-The architecture should be optimized for image delivery, scalability, and cost.
+Lambda provides enough scalability with lower cost and less infrastructure management.
 
 ---
 
-## Why S3
+## Why DynamoDB Instead of SQL
 
-S3 is used to store image files.
+DynamoDB was selected because the current access patterns are simple and predictable.
 
-Reasons:
+The application mainly needs to:
 
-* Built for file storage
-* Highly scalable
-* Cost-effective
-* No storage server management required
+* Save image metadata
+* Get image metadata by ID
+* List latest images
+* Get images uploaded by a user
 
----
+These access patterns do not require complex joins or relational queries.
 
-## Why CloudFront
+### Why Not SQL
 
-Users are located in different countries.
+SQL databases are useful when the system requires:
 
-Without CloudFront:
+* Complex relationships
+* Joins across multiple entities
+* Reporting workloads
+* Advanced filtering
+* Transaction-heavy operations
 
-```text
-User
- ↓
-S3
-```
+For this use case, those requirements are not needed.
 
-Every image request goes directly to S3.
+Using SQL at this stage may introduce additional operational overhead such as:
 
-With CloudFront:
+* Connection pooling
+* Database scaling
+* Read replicas
+* Index management
+* Server maintenance
 
-```text
-User
- ↓
-CloudFront
- ↓
-S3
-```
-
-CloudFront stores cached copies of images in edge locations closer to users.
-
-Benefits:
-
-* Faster image loading
-* Lower latency
-* Reduced requests to S3
-* Better experience for global users
+DynamoDB is a better fit for simple metadata access at scale while keeping the architecture lightweight.
 
 ---
 
 ## Why CloudFront Directly Accesses S3
 
-The backend only returns image information and image URLs.
+Images are expected to be viewed more frequently than they are uploaded.
 
-Example:
-
-```json
-{
-  "id": 123,
-  "imageUrl": "https://cdn.myapp.com/images/123.jpg"
-}
-```
-
-The browser downloads the image directly from CloudFront.
-
-Benefits:
-
-* Image traffic does not hit the backend
-* Lower Lambda and API Gateway usage
-* Better scalability
-* Lower operating cost
-
----
-
-## Why Pre-Signed URLs
-
-The frontend uploads images directly to S3.
-
-Flow:
+The backend is responsible only for returning metadata and image URLs.
 
 ```text
 Frontend
- ↓
-Request Upload URL
- ↓
-Upload Directly To S3
+ -> API Gateway
+ -> Lambda
+ -> DynamoDB
+ -> Return image metadata and CloudFront URLs
 ```
 
-Benefits:
-
-* Faster uploads
-* Lower backend traffic
-* Reduced compute cost
-* Better scalability
-
----
-
-## Why Lambda
-
-The API mainly handles:
-
-* Generate upload URLs
-* Save image metadata
-* Retrieve image metadata
-
-Reasons:
-
-* Automatically scales
-* No server management
-* Pay only when used
-* Good fit for variable traffic
-
-Cold starts are acceptable because this application does not require real-time responses.
-
----
-
-## Why DynamoDB
-
-The current requirements are simple.
-
-Examples:
+The actual image should be loaded directly through CloudFront.
 
 ```text
-Get image by ID
-
-Get latest images
-
-Get images by user
+Browser
+ -> CloudFront
+ -> S3
 ```
 
-Reasons:
+### Why Not Serve Images Through Backend
 
-* Fast read and write performance
-* Automatically scales
-* No database server management
-* Low operational overhead
+Serving images through the backend is not ideal because:
 
-A relational database is not required because there are no requirements for complex joins, reporting, or transactions.
+* Every image request consumes API Gateway and Lambda resources
+* Backend cost increases as image traffic grows
+* Additional latency is introduced
+* Lambda becomes responsible for file delivery
+* CDN caching benefits are reduced
+
+CloudFront is a better solution because it caches images in edge locations closer to users, reducing latency and backend workload.
 
 ---
 
 ## Why SQS and Image Processor
 
-Image processing tasks such as:
+Image processing should not be part of the main application flow.
+
+Processing tasks include:
 
 * Thumbnail generation
+* Image compression
 * Image optimization
-* Compression
 
-should not be part of the main application flow.
-
-Without a queue:
+### Without SQS
 
 ```text
 Upload Image
- ↓
-Process Image
- ↓
-Return Response
+ -> Process Image
+ -> Return Response
 ```
 
-Users need to wait until processing is completed.
+The user must wait until image processing is completed.
 
-With SQS:
+### With SQS
 
 ```text
 Upload Image
- ↓
+ -> Send Message To SQS
+ -> Return Response
+
 SQS
- ↓
-Image Processor
+ -> Image Processor
+ -> Process Image In Background
 ```
 
-The upload is completed immediately while image processing happens in the background.
+The upload completes immediately while image processing happens asynchronously.
 
-Benefits:
+### Why Not Process Immediately
 
-* Faster user experience
-* Upload service stays responsive
-* Easier to scale processing independently
-* Better fault tolerance
-* Prevents heavy processing from affecting the main application
+Processing images during upload is not ideal because:
 
----
+* Upload response becomes slower
+* Backend is blocked by image processing
+* Failures can impact the user experience
+* Processing cannot scale independently from the upload service
 
-## Summary
+SQS separates background processing from the main application flow.
 
-This architecture is designed to handle:
+This keeps the upload experience fast while allowing image processing workloads to scale independently.
 
-* High image traffic
-* Global users
-* Future growth
-* Cost optimization
-* Automatic scaling
-
-Key services:
-
-* S3 for image storage
-* CloudFront for image delivery
-* Lambda for APIs
-* DynamoDB for metadata
-* SQS for asynchronous processing
-* Image Processor for thumbnail generation and optimization
 
 # Sequence Diagram
 
